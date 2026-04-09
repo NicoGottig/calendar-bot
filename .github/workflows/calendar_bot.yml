@@ -1,0 +1,65 @@
+name: Calendar Bot
+
+on:
+  schedule:
+    - cron: '0 11 * * *'   # 08:00 ART
+    - cron: '0 17 * * *'   # 14:00 ART
+    - cron: '0 1 * * *'    # 22:00 ART
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "Modo"
+        required: true
+        default: "today"
+        type: choice
+        options:
+          - today
+          - pending
+          - tomorrow
+
+jobs:
+  run-bot:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Recreate Google credential files
+        run: |
+          cat > credentials.json <<'EOF'
+          ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
+          EOF
+
+          cat > token.json <<'EOF'
+          ${{ secrets.GOOGLE_TOKEN_JSON }}
+          EOF
+
+      - name: Determine mode
+        id: mode
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "mode=${{ github.event.inputs.mode }}" >> $GITHUB_OUTPUT
+          else
+            HOUR=$(date -u +%H)
+            case "$HOUR" in
+              11) echo "mode=today" >> $GITHUB_OUTPUT ;;
+              17) echo "mode=pending" >> $GITHUB_OUTPUT ;;
+              01) echo "mode=tomorrow" >> $GITHUB_OUTPUT ;;
+              *)  echo "mode=today" >> $GITHUB_OUTPUT ;;
+            esac
+          fi
+
+      - name: Run bot
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python src/bot.py ${{ steps.mode.outputs.mode }}
